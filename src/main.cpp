@@ -2,6 +2,7 @@
 #include <OneButton.h>
 #include <Wire.h>
 
+#include "buzzer.h"
 #include "config.h"
 #include "display.h"
 #include "progress.h"
@@ -15,6 +16,7 @@ uint32_t stateStart = 0; // millis() ตอนเข้า state ปัจจุ
 uint8_t smallRound = 0;  // 0-3 รอบเล็กปัจจุบัน
 uint8_t selectCursor = 0;
 int8_t hatchAnimal = -1;
+uint8_t hatchStage = 0; // 0 = สั่น, 1 = แตก, 2 = โชว์ตัว (ใช้ปล่อยเสียงครั้งเดียวต่อช่วง)
 
 // ---------- state ----------
 
@@ -24,6 +26,24 @@ void enterState(State next)
 {
   state = next;
   stateStart = millis();
+  switch (next)
+  {
+  case State::Focus:
+    buzzer::play(Sound::Focus);
+    break;
+  case State::Break:
+    buzzer::play(Sound::Break);
+    break;
+  case State::Success:
+    buzzer::play(Sound::Success);
+    break;
+  case State::Hatch:
+    hatchStage = 0;
+    buzzer::play(Sound::Shake);
+    break;
+  default:
+    break;
+  }
 }
 
 void goHome()
@@ -75,6 +95,16 @@ void updateState()
     }
     break;
   case State::Hatch:
+    if (hatchStage == 0 && elapsed() >= HATCH_SHAKE_MS)
+    {
+      hatchStage = 1;
+      buzzer::play(Sound::Crack);
+    }
+    else if (hatchStage == 1 && elapsed() >= HATCH_SHAKE_MS + HATCH_CRACK_MS)
+    {
+      hatchStage = 2;
+      buzzer::play(Sound::Hatch);
+    }
     if (elapsed() >= HATCH_SHAKE_MS + HATCH_CRACK_MS + HATCH_REVEAL_MS)
       goHome();
     break;
@@ -88,6 +118,8 @@ void updateState()
 void onClick()
 {
   Serial.println("DEBUG: click");
+  if (state == State::Sleep || state == State::Normal || state == State::Select)
+    buzzer::play(Sound::Click);
   switch (state)
   {
   case State::Sleep:
@@ -134,6 +166,7 @@ void onLongPress()
     break;
   case State::Focus:
   case State::Break:
+    buzzer::play(Sound::Cancel);
     goHome(); // ยกเลิก รอบนี้ไม่นับ
     break;
   default:
@@ -179,6 +212,7 @@ void setup()
   Serial.println("DEBUG: boot");
   Wire.begin(PIN_SDA, PIN_SCL);
   display::begin();
+  buzzer::begin();
 
   progress.load();
   Serial.printf("DEBUG: loaded rounds=%u unlocked=%u selected=%d\n", progress.bigRounds(),
@@ -195,6 +229,7 @@ void loop()
 {
   button.tick();
   updateState();
+  buzzer::update();
 #ifdef DEBUG_FAST
   handleSerial();
 #endif

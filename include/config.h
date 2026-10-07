@@ -5,6 +5,7 @@
 constexpr uint8_t PIN_SDA = 21;
 constexpr uint8_t PIN_SCL = 22;
 constexpr uint8_t PIN_BUTTON = 32; // อีกขาของปุ่มต่อ GND
+constexpr uint8_t PIN_BUZZER = 25; // passive buzzer (ขา + ต่อขานี้, อีกขาต่อ GND)
 
 // ---- เวลา ----
 #ifdef DEBUG_FAST
