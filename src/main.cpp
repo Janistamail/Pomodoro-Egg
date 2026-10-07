@@ -13,6 +13,7 @@ enum class State
   Select,
   Focus,
   Break,
+  Success,
   Hatch
 };
 
@@ -38,22 +39,15 @@ void enterState(State next)
 
 void goHome()
 {
-  enterState(progress.selected() >= 0 ? State::Normal : State::Sleep);
+  enterState(State::Normal); // หน้าปกติ: ไข่ (ยังไม่มีตัว) หรือตัวที่เลือก แล้วหลับเองเมื่อครบเวลา
 }
 
 void finishBigRound()
 {
   int8_t unlocked = progress.completeBigRound();
   Serial.printf("big round %u done, unlocked=%d\n", progress.bigRounds(), unlocked);
-  if (unlocked >= 0)
-  {
-    hatchAnimal = unlocked;
-    enterState(State::Hatch);
-  }
-  else
-  {
-    goHome();
-  }
+  hatchAnimal = unlocked; // -1 = ไม่ครบ 3 รอบใหญ่ ไม่ต้องฟัก
+  enterState(State::Success);
 }
 
 void updateState()
@@ -82,6 +76,19 @@ void updateState()
       }
     }
     break;
+  case State::Success:
+    if (elapsed() >= SUCCESS_MS)
+    {
+      if (hatchAnimal >= 0)
+        enterState(State::Hatch);
+      else
+        goHome();
+    }
+    break;
+  case State::Hatch:
+    if (elapsed() >= HATCH_SHAKE_MS + HATCH_CRACK_MS + HATCH_REVEAL_MS)
+      goHome();
+    break;
   default:
     break;
   }
@@ -95,8 +102,7 @@ void onClick()
   switch (state)
   {
   case State::Sleep:
-    if (progress.selected() >= 0)
-      enterState(State::Normal);
+    enterState(State::Normal);
     break;
   case State::Normal:
     stateStart = millis(); // รีเซ็ตเวลานับเข้า Sleep
@@ -181,13 +187,21 @@ void drawSleep()
   u8g2.drawHLine(54, 54, 20); // ปาก
 }
 
+void drawEgg()
+{
+  int wobble = (millis() / 600) % 2 ? 1 : -1; // โยกซ้ายขวาเบา ๆ
+  int cx = 64 + wobble;
+  u8g2.drawEllipse(cx, 32, 18, 24);
+  u8g2.drawEllipse(cx, 32, 17, 23);
+  u8g2.drawDisc(cx - 6, 24, 2); // ลายจุดบนไข่
+  u8g2.drawDisc(cx + 7, 34, 3);
+  u8g2.drawDisc(cx - 4, 44, 2);
+}
+
 void drawNormal()
 {
-  char name[16];
-  animalName(progress.selected(), name, sizeof(name));
-  int bob = (millis() / 500) % 2 * 3; // ขยับขึ้นลง 2 เฟรม
-  u8g2.setFont(u8g2_font_ncenB14_tr);
-  drawCentered(name, 36 + bob);
+  // หน้าปกติแสดงไข่เสมอ (ยังไม่มี bitmap สัตว์จริง) ตัวสัตว์ดูได้ที่หน้า Select / Hatch
+  drawEgg();
 }
 
 void drawSelect()
@@ -202,18 +216,25 @@ void drawSelect()
   drawCentered(name, 40);
 }
 
-void drawTimer(const char *label, uint32_t duration)
+// เวลาที่เหลือเป็น MM:SS (ปัดขึ้นเป็นวินาที ไม่โชว์มิลลิวินาที)
+void formatRemain(uint32_t duration, char *out, size_t size)
 {
   uint32_t e = elapsed();
-  uint32_t remain = (e < duration ? duration - e : 0) * TIME_DIVISOR / 1000; // วินาทีตามเวลาจริง
+  uint32_t remain = (e < duration ? duration - e + 999 : 0) / 1000;
+  snprintf(out, size, "%02lu:%02lu", (unsigned long)(remain / 60), (unsigned long)(remain % 60));
+}
+
+void drawTimer(const char *label, uint32_t duration)
+{
   char line[24];
 
   u8g2.setFont(u8g2_font_6x10_tr);
   u8g2.drawStr(0, 10, label);
+  u8g2.setFont(u8g2_font_5x7_tr);
   snprintf(line, sizeof(line), "%d/%d", smallRound + 1, SMALL_ROUNDS_PER_BIG);
-  u8g2.drawStr(128 - u8g2.getStrWidth(line), 10, line);
+  u8g2.drawStr(128 - u8g2.getStrWidth(line), 7, line);
 
-  snprintf(line, sizeof(line), "%02lu:%02lu", (unsigned long)(remain / 60), (unsigned long)(remain % 60));
+  formatRemain(duration, line, sizeof(line));
   u8g2.setFont(u8g2_font_logisoso24_tn);
   drawCentered(line, 48);
 }
@@ -221,8 +242,6 @@ void drawTimer(const char *label, uint32_t duration)
 // หน้าโฟกัส: หน้าตั้งใจ (คิ้วเฉียง) + เวลานับถอยหลังด้านล่าง
 void drawFocus()
 {
-  uint32_t e = elapsed();
-  uint32_t remain = (e < FOCUS_MS ? FOCUS_MS - e : 0) * TIME_DIVISOR / 1000;
   char line[24];
 
   u8g2.drawRBox(34, 14, 20, 16, 4); // ตา
@@ -233,12 +252,12 @@ void drawFocus()
   u8g2.drawLine(98, 6, 74, 12);
   u8g2.drawHLine(54, 38, 20); // ปากตรง
 
-  u8g2.setFont(u8g2_font_6x10_tr);
+  u8g2.setFont(u8g2_font_5x7_tr);
   snprintf(line, sizeof(line), "%d/%d", smallRound + 1, SMALL_ROUNDS_PER_BIG);
-  u8g2.drawStr(0, 62, line);
+  u8g2.drawStr(128 - u8g2.getStrWidth(line), 7, line); // มุมขวาบน
 
-  snprintf(line, sizeof(line), "%02lu:%02lu", (unsigned long)(remain / 60), (unsigned long)(remain % 60));
-  u8g2.setFont(u8g2_font_logisoso16_tn);
+  formatRemain(FOCUS_MS, line, sizeof(line));
+  u8g2.setFont(u8g2_font_helvB12_tn);
   drawCentered(line, 62);
 }
 
@@ -268,6 +287,59 @@ void drawHatch()
   }
 }
 
+void drawSparkle(int x, int y, int r)
+{
+  u8g2.drawHLine(x - r, y, 2 * r + 1);
+  u8g2.drawVLine(x, y - r, 2 * r + 1);
+}
+
+void drawTrophy(int dy)
+{
+  u8g2.drawCircle(44, 17 + dy, 6); // หู
+  u8g2.drawCircle(84, 17 + dy, 6);
+  u8g2.drawBox(46, 6 + dy, 36, 12);
+  u8g2.drawRBox(46, 6 + dy, 36, 26, 10); // ตัวถ้วย
+  u8g2.drawBox(60, 32 + dy, 8, 6);       // ก้าน
+  u8g2.drawBox(54, 38 + dy, 20, 3);
+  u8g2.drawBox(48, 41 + dy, 32, 4);      // ฐาน
+}
+
+void drawSuccess()
+{
+  uint32_t e = elapsed();
+  if (e < SUCCESS_XP_MS)
+  {
+    // ตัวเลข XP นับขึ้นใน 1 วินาทีแรก
+    uint32_t count = XP_PER_BIG_ROUND * min<uint32_t>(e, 1000) / 1000;
+    char xp[16];
+    snprintf(xp, sizeof(xp), "+%lu XP", (unsigned long)count);
+    u8g2.setFont(u8g2_font_ncenB14_tr);
+    drawCentered(xp, 40);
+    return;
+  }
+
+  uint32_t t = e - SUCCESS_XP_MS;
+  int dy = 8;
+  if (t < 400)
+    dy += 24 * (400 - t) / 400;              // ถ้วยลอยขึ้นมา
+  else
+    dy += (millis() / 300) % 2 ? 0 : -2;     // แล้วเด้งเบา ๆ
+
+  drawTrophy(dy);
+
+  if (t >= 400)
+  {
+    // ประกายระยิบระยับ
+    static const int8_t pos[4][2] = {{24, 14}, {104, 10}, {30, 48}, {100, 46}};
+    for (uint8_t i = 0; i < 4; i++)
+    {
+      uint8_t phase = (millis() / 200 + i * 2) % 6;
+      if (phase < 3)
+        drawSparkle(pos[i][0], pos[i][1], phase == 1 ? 3 : 1);
+    }
+  }
+}
+
 void render()
 {
   u8g2.clearBuffer();
@@ -287,6 +359,9 @@ void render()
     break;
   case State::Break:
     drawTimer("BREAK", BREAK_MS);
+    break;
+  case State::Success:
+    drawSuccess();
     break;
   case State::Hatch:
     drawHatch();
@@ -308,7 +383,7 @@ void handleSerial()
     progress.reset();
     enterState(State::Sleep);
   }
-  else if (c == '+' && state != State::Hatch)
+  else if (c == '+' && state != State::Hatch && state != State::Success)
   { // จบรอบใหญ่ทันที
     finishBigRound();
   }
@@ -324,9 +399,12 @@ void setup()
   Serial.begin(115200);
   Serial.println("DEBUG: boot");
   Wire.begin(PIN_SDA, PIN_SCL);
+  u8g2.setBusClock(100000); // ช้าลงเพื่อกันสายหลวม/สัญญาณเพี้ยน
   u8g2.begin();
 
   progress.load();
+  Serial.printf("DEBUG: loaded rounds=%u unlocked=%u selected=%d\n", progress.bigRounds(),
+                progress.unlockedCount(), progress.selected());
 
   button.attachClick(onClick);
   button.attachDoubleClick(onDoubleClick);
@@ -347,7 +425,7 @@ void loop()
   if (millis() - lastBeat >= 1000)
   {
     lastBeat = millis();
-    Serial.printf("DEBUG: alive %lu ms, state=%d (0=Sleep 1=Normal 2=Select 3=Focus 4=Break 5=Hatch)\n", (unsigned long)millis(), (int)state);
+    Serial.printf("DEBUG: alive %lu ms, state=%d (0=Sleep 1=Normal 2=Select 3=Focus 4=Break 5=Success 6=Hatch)\n", (unsigned long)millis(), (int)state);
   }
 
   static uint32_t lastFrame = 0;
