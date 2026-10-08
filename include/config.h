@@ -15,24 +15,32 @@ constexpr uint32_t TIME_DIVISOR = 1;
 #endif
 
 #ifdef DEBUG_FAST
-constexpr uint32_t FOCUS_MS = 10UL * 1000;  // โหมดทดสอบ: โฟกัส 10 วินาที
-constexpr uint32_t BREAK_MS = 3UL * 1000;   // โหมดทดสอบ: พัก 3 วินาที
-constexpr uint32_t IDLE_TO_SLEEP_MS = 10UL * 1000;  // โหมดทดสอบ: หน้าปกติ 10 วินาทีแล้วหลับ
+constexpr uint32_t FOCUS_MS = 1UL * 1000;          // โหมดทดสอบ: โฟกัส 10 วินาที
+constexpr uint32_t BREAK_MS = 1UL * 1000;          // โหมดทดสอบ: พัก 3 วินาที
+constexpr uint32_t IDLE_TO_SLEEP_MS = 10UL * 1000; // โหมดทดสอบ: หน้าปกติ 10 วินาทีแล้วหลับ
 #else
 constexpr uint32_t FOCUS_MS = 25UL * 60 * 1000;
 constexpr uint32_t BREAK_MS = 5UL * 60 * 1000;
-constexpr uint32_t IDLE_TO_SLEEP_MS = 3UL * 60 * 1000;  // หน้าปกติ 3 นาทีแล้วหลับ
+constexpr uint32_t IDLE_TO_SLEEP_MS = 3UL * 60 * 1000; // หน้าปกติ 3 นาทีแล้วหลับ
 #endif
-constexpr uint8_t SMALL_ROUNDS_PER_BIG = 4;
+constexpr uint8_t SMALL_ROUNDS_PER_BIG = 1;
 
 // ---- เกม ----
 constexpr uint8_t ANIMAL_COUNT = 15;           // ตัวปกติ index 0-14
 constexpr uint8_t SECRET_INDEX = ANIMAL_COUNT; // ตัวซีเคร็ต index 15
-constexpr uint8_t ROUNDS_PER_UNLOCK = 3;
+#ifdef DEBUG_FAST
+constexpr uint8_t ROUNDS_PER_UNLOCK = 1; // โหมดทดสอบ: 1 รอบใหญ่ปลดล็อกตัวใหม่
+#else
+constexpr uint8_t ROUNDS_PER_UNLOCK = 3; // ต้องเล่นครบ 3 รอบใหญ่ถึงปลดล็อกตัวใหม่
+#endif
+#ifdef DEBUG_FAST
+constexpr uint8_t SECRET_ROUNDS = 16; // โหมดทดสอบ: 15 รอบได้ตัวปกติครบ รอบที่ 16 ได้ตัวซีเคร็ต
+#else
 constexpr uint8_t SECRET_ROUNDS = 100;
+#endif
 
 // ---- อนิเมชันไข่ฟัก ----
-constexpr uint32_t HATCH_SHAKE_MS = 3000;
+constexpr uint32_t HATCH_SHAKE_MS = 1000;
 constexpr uint32_t HATCH_CRACK_MS = 1000;
 constexpr uint32_t HATCH_REVEAL_MS = 3000; // โชว์ตัวใหม่ก่อนกลับหน้าปกติ
 

@@ -8,5 +8,6 @@ enum class State
   Focus,
   Break,
   Success,
-  Hatch
+  Hatch,
+  Collection
 };

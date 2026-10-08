@@ -2,6 +2,7 @@
 
 #include <U8g2lib.h>
 
+#include "animals.h"
 #include "config.h"
 
 static U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
@@ -15,14 +16,7 @@ static void drawCentered(const char *text, int y)
 
 static void animalName(int8_t index, char *out, size_t size)
 {
-  if (index == SECRET_INDEX)
-  {
-    snprintf(out, size, "SECRET");
-  }
-  else
-  {
-    snprintf(out, size, "Animal %d", index + 1);
-  }
+  snprintf(out, size, "%s", animals::name(index));
 }
 
 // เวลาที่เหลือเป็น MM:SS (ปัดขึ้นเป็นวินาที ไม่โชว์มิลลิวินาที)
@@ -47,7 +41,13 @@ static void drawSleep()
     u8g2.drawRBox(30, 16, 24, 26, 6);
     u8g2.drawRBox(74, 16, 24, 26, 6);
   }
-  u8g2.drawHLine(54, 54, 20); // ปาก
+  // ยิ้ม
+  u8g2.drawLine(56, 50, 60, 54);
+  u8g2.drawLine(56, 51, 60, 55);
+  u8g2.drawHLine(60, 54, 8);
+  u8g2.drawHLine(60, 55, 8);
+  u8g2.drawLine(72, 50, 68, 54);
+  u8g2.drawLine(72, 51, 68, 55);
 }
 
 static void drawEgg()
@@ -61,22 +61,65 @@ static void drawEgg()
   u8g2.drawDisc(cx - 4, 44, 2);
 }
 
-static void drawNormal()
+static void drawNormal(const View &v)
 {
-  // หน้าปกติแสดงไข่เสมอ (ยังไม่มี bitmap สัตว์จริง) ตัวสัตว์ดูได้ที่หน้า Select / Hatch
-  drawEgg();
+  // หน้าปกติแสดงตัวที่เลือกไว้ ถ้ายังไม่เคยเลือกให้แสดงไข่
+  if (v.selectedAnimal < 0)
+  {
+    drawEgg();
+    return;
+  }
+
+  // หายใจเบา ๆ ตลอดเวลา และกระโดดเด้งทุก 4 วินาที
+  uint32_t t = millis() % 4000;
+  int dy = (millis() / 500) % 2 ? 0 : -1;
+  if (t < 400)
+    dy -= 6 * 4 * t * (400 - t) / (400 * 400); // วิถีโค้งพาราโบลา สูงสุด 6 พิกเซล
+  animals::draw(u8g2, v.selectedAnimal, 64, 34 + dy);
 }
 
+// หน้าสะสม: ดูทีละตัว ตัวที่ยังไม่ปลดล็อกโชว์เครื่องหมาย ?
+static void drawCollection(const View &v)
+{
+  const int total = ANIMAL_COUNT + 1;
+  int8_t i = v.collectionCursor;
+  bool open = (v.unlockedMask >> i) & 1;
+  char line[12];
+
+  u8g2.setFont(u8g2_font_5x7_tr);
+  u8g2.drawStr(0, 7, "COLLECTION");
+  snprintf(line, sizeof(line), "%d/%d", i + 1, total); // หน้าปัจจุบัน/ทั้งหมด
+  u8g2.drawStr(128 - u8g2.getStrWidth(line), 7, line);
+
+  if (open)
+  {
+    animals::draw(u8g2, i, 64, 34);
+    u8g2.setFont(u8g2_font_6x10_tr);
+    drawCentered(animals::name(i), 63);
+  }
+  else
+  {
+    u8g2.setFont(u8g2_font_logisoso32_tr);
+    drawCentered("?", 52);
+    u8g2.setFont(u8g2_font_6x10_tr);
+    drawCentered("???", 63);
+  }
+}
+
+// หน้าเลือกตัว: โชว์ตัวที่ปลดล็อกแล้วทีละตัวแบบเดียวกับหน้าสะสม
 static void drawSelect(const View &v)
 {
-  char name[16], line[24];
-  animalName(v.selectCursor, name, sizeof(name));
-  u8g2.setFont(u8g2_font_6x10_tr);
-  drawCentered("SELECT", 10);
+  char line[12];
+
+  u8g2.setFont(u8g2_font_5x7_tr);
+  u8g2.drawStr(0, 7, "SELECT");
   snprintf(line, sizeof(line), "%d/%d", v.selectCursor + 1, v.unlockedCount);
-  drawCentered(line, 62);
-  u8g2.setFont(u8g2_font_ncenB14_tr);
-  drawCentered(name, 40);
+  u8g2.drawStr(128 - u8g2.getStrWidth(line), 7, line);
+
+  int dy = (millis() / 500) % 2 ? 0 : -1; // หายใจเบา ๆ
+  animals::draw(u8g2, v.selectAnimal, 64, 34 + dy);
+  u8g2.setFont(u8g2_font_6x10_tr);
+  drawCentered(animals::name(v.selectAnimal), 63);
 }
 
 static void drawTimer(const View &v, const char *label, uint32_t duration)
@@ -133,12 +176,10 @@ static void drawHatch(const View &v)
   }
   else
   {
-    char name[16];
-    animalName(v.hatchAnimal, name, sizeof(name));
     u8g2.setFont(u8g2_font_6x10_tr);
-    drawCentered("NEW!", 12);
-    u8g2.setFont(u8g2_font_ncenB14_tr);
-    drawCentered(name, 42);
+    u8g2.drawStr(0, 8, "NEW!");
+    animals::draw(u8g2, v.hatchAnimal, 64, 34);
+    drawCentered(animals::name(v.hatchAnimal), 63);
   }
 }
 
@@ -162,7 +203,9 @@ static void drawTrophy(int dy)
 static void drawSuccess(const View &v)
 {
   uint32_t e = v.elapsed;
-  if (e < SUCCESS_XP_MS)
+  // ปลดล็อกครบทุกตัวแล้ว: ข้ามหน้า +XP ไปโชว์ถ้วยเลย
+  uint32_t trophyStart = v.gameComplete ? 0 : SUCCESS_XP_MS;
+  if (e < trophyStart)
   {
     // ตัวเลข XP นับขึ้นใน 1 วินาทีแรก
     uint32_t count = XP_PER_BIG_ROUND * min<uint32_t>(e, 1000) / 1000;
@@ -173,7 +216,7 @@ static void drawSuccess(const View &v)
     return;
   }
 
-  uint32_t t = e - SUCCESS_XP_MS;
+  uint32_t t = e - trophyStart;
   int dy = 8;
   if (t < 400)
     dy += 24 * (400 - t) / 400;              // ถ้วยลอยขึ้นมา
@@ -199,7 +242,7 @@ static void drawSuccess(const View &v)
 
 void display::begin()
 {
-  u8g2.setBusClock(100000); // ช้าลงเพื่อกันสายหลวม/สัญญาณเพี้ยน
+  u8g2.setBusClock(400000); // 100 kHz ทำให้ส่งภาพแต่ละเฟรมช้า (~90 ms) ปุ่มเลยอ่านไม่ทัน
   u8g2.begin();
 }
 
@@ -212,7 +255,7 @@ void display::render(const View &v)
     drawSleep();
     break;
   case State::Normal:
-    drawNormal();
+    drawNormal(v);
     break;
   case State::Select:
     drawSelect(v);
@@ -228,6 +271,9 @@ void display::render(const View &v)
     break;
   case State::Hatch:
     drawHatch(v);
+    break;
+  case State::Collection:
+    drawCollection(v);
     break;
   }
   u8g2.sendBuffer();

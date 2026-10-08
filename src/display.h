@@ -12,6 +12,11 @@ struct View
   uint8_t selectCursor;
   uint8_t unlockedCount;
   int8_t hatchAnimal;
+  int8_t selectedAnimal; // -1 = ยังไม่ได้เลือกตัว
+  uint8_t collectionCursor;
+  uint16_t unlockedMask;
+  int8_t selectAnimal; // ตัวที่ cursor ของหน้า Select ชี้อยู่
+  bool gameComplete;   // ปลดล็อกครบทุกตัวแล้ว: หน้าสำเร็จโชว์แบบ "ครบแล้ว" แทน XP
 };
 
 namespace display

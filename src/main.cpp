@@ -15,6 +15,7 @@ State state = State::Sleep;
 uint32_t stateStart = 0; // millis() ตอนเข้า state ปัจจุบัน
 uint8_t smallRound = 0;  // 0-3 รอบเล็กปัจจุบัน
 uint8_t selectCursor = 0;
+uint8_t collectionCursor = 0;
 int8_t hatchAnimal = -1;
 uint8_t hatchStage = 0; // 0 = สั่น, 1 = แตก, 2 = โชว์ตัว (ใช้ปล่อยเสียงครั้งเดียวต่อช่วง)
 
@@ -46,6 +47,12 @@ void enterState(State next)
   }
 }
 
+// ปลดล็อกครบทุกตัวแล้ว และรอบนี้ไม่ได้ปลดล็อกตัวใหม่
+bool gameComplete()
+{
+  return progress.bigRounds() >= SECRET_ROUNDS && hatchAnimal < 0;
+}
+
 void goHome()
 {
   enterState(State::Normal); // หน้าปกติ: ไข่ (ยังไม่มีตัว) หรือตัวที่เลือก แล้วหลับเองเมื่อครบเวลา
@@ -55,7 +62,7 @@ void finishBigRound()
 {
   int8_t unlocked = progress.completeBigRound();
   Serial.printf("big round %u done, unlocked=%d\n", progress.bigRounds(), unlocked);
-  hatchAnimal = unlocked; // -1 = ไม่ครบ 3 รอบใหญ่ ไม่ต้องฟัก
+  hatchAnimal = unlocked; // -1 = ไม่ได้ปลดล็อกตัวใหม่ ไม่ต้องฟัก
   enterState(State::Success);
 }
 
@@ -86,7 +93,7 @@ void updateState()
     }
     break;
   case State::Success:
-    if (elapsed() >= SUCCESS_MS)
+    if (elapsed() >= (gameComplete() ? SUCCESS_TROPHY_MS : SUCCESS_MS))
     {
       if (hatchAnimal >= 0)
         enterState(State::Hatch);
@@ -118,7 +125,8 @@ void updateState()
 void onClick()
 {
   Serial.println("DEBUG: click");
-  if (state == State::Sleep || state == State::Normal || state == State::Select)
+  if (state == State::Sleep || state == State::Normal || state == State::Select ||
+      state == State::Collection)
     buzzer::play(Sound::Click);
   switch (state)
   {
@@ -127,6 +135,9 @@ void onClick()
     break;
   case State::Normal:
     stateStart = millis(); // รีเซ็ตเวลานับเข้า Sleep
+    break;
+  case State::Collection:
+    collectionCursor = (collectionCursor + 1) % (ANIMAL_COUNT + 1);
     break;
   case State::Select:
     selectCursor = (selectCursor + 1) % progress.unlockedCount();
@@ -142,12 +153,25 @@ void onClick()
 
 void onDoubleClick()
 {
+  Serial.printf("DEBUG: double click (state=%d unlocked=%u)\n", (int)state, progress.unlockedCount());
   if (state != State::Sleep && state != State::Normal)
     return;
   if (progress.unlockedCount() == 0)
     return;
-  selectCursor = max<int8_t>(progress.selected(), 0);
+  selectCursor = progress.rankOf(max<int8_t>(progress.selected(), 0));
   enterState(State::Select);
+}
+
+void onMultiClick()
+{
+  Serial.printf("DEBUG: multi click x%d (state=%d)\n", button.getNumberClicks(), (int)state);
+  if (button.getNumberClicks() != 3)
+    return;
+  if (state != State::Sleep && state != State::Normal)
+    return;
+  buzzer::play(Sound::Click);
+  collectionCursor = 0;
+  enterState(State::Collection);
 }
 
 void onLongPress()
@@ -161,7 +185,10 @@ void onLongPress()
     enterState(State::Focus);
     break;
   case State::Select:
-    progress.select(selectCursor);
+    progress.select(progress.nthUnlocked(selectCursor));
+    enterState(State::Normal);
+    break;
+  case State::Collection:
     enterState(State::Normal);
     break;
   case State::Focus:
@@ -178,7 +205,7 @@ void onLongPress()
 
 void render()
 {
-  View v = {state, elapsed(), smallRound, selectCursor, progress.unlockedCount(), hatchAnimal};
+  View v = {state, elapsed(), smallRound, selectCursor, progress.unlockedCount(), hatchAnimal, progress.selected(), collectionCursor, progress.unlockedMask(), progress.nthUnlocked(selectCursor), gameComplete()};
   display::render(v);
 }
 
@@ -218,8 +245,10 @@ void setup()
   Serial.printf("DEBUG: loaded rounds=%u unlocked=%u selected=%d\n", progress.bigRounds(),
                 progress.unlockedCount(), progress.selected());
 
+  button.setClickMs(500); // เว้นระหว่างการกดได้นานขึ้นเล็กน้อย กดรัวสามครั้งง่ายขึ้น
   button.attachClick(onClick);
   button.attachDoubleClick(onDoubleClick);
+  button.attachMultiClick(onMultiClick);
   button.attachLongPressStart(onLongPress);
 
   goHome();
@@ -238,7 +267,7 @@ void loop()
   if (millis() - lastBeat >= 1000)
   {
     lastBeat = millis();
-    Serial.printf("DEBUG: alive %lu ms, state=%d (0=Sleep 1=Normal 2=Select 3=Focus 4=Break 5=Success 6=Hatch)\n", (unsigned long)millis(), (int)state);
+    Serial.printf("DEBUG: alive %lu ms, state=%d (0=Sleep 1=Normal 2=Select 3=Focus 4=Break 5=Success 6=Hatch 7=Collection)\n", (unsigned long)millis(), (int)state);
   }
 
   static uint32_t lastFrame = 0;
